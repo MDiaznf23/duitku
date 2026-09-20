@@ -80,6 +80,7 @@ class PengaturanTab extends StatelessWidget {
             ),
           ),
           if (cur == 'employed') ..._buildSalaryConfig(context),
+          if (cur == 'employed') ..._buildAccounts(context),
           const SectionTitle('Backup & Pindah Data'),
           _card(
             context,
@@ -185,7 +186,7 @@ class PengaturanTab extends StatelessWidget {
                       onPressed: () async {
                         final ok = await showConfirmDialog(context,
                             title: 'Reset Saldo',
-                            message: 'Reset saldo ke 0?\n\nIni akan menghapus semua riwayat income\ndan mereset saldo menjadi Rp 0.');
+                            message: 'Reset saldo ke 0?\n\nRiwayat tetap utuh, selisihnya dicatat\nsebagai penyesuaian saldo.');
                         if (ok) {
                           resetSaldoEmployed(data);
                           await onChanged();
@@ -277,6 +278,95 @@ class PengaturanTab extends StatelessWidget {
             _cfgRow(context, 'Periode (hari)', d.salaryPeriodDays.toString(), (v) => d.salaryPeriodDays = v.toInt()),
             const SizedBox(height: 8),
             _cfgRow(context, 'Tabungan (%)', d.savingsPercent.toStringAsFixed(0), (v) => d.savingsPercent = v),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildAccounts(BuildContext context) {
+    final d = data.employed;
+    return [
+      const SectionTitle('Kantong'),
+      _card(
+        context,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pisahkan saldo kamu jadi beberapa kantong (Tunai, m-Banking, '
+              'e-Wallet, dst). Kantong bertanda "Tabungan" tidak dihitung '
+              'sebagai saldo yang bisa dipakai sehari-hari.',
+              style: TextStyle(fontSize: 11, color: context.colors.textMuted),
+            ),
+            const SizedBox(height: 10),
+            ...d.accounts.map((a) => AccountRowTile(
+                  account: a,
+                  onSetBalance: () async {
+                    final res = await showAmountDialog(context,
+                        title: 'Set Saldo: ${a.label}',
+                        initialAmount: a.balance.toStringAsFixed(0),
+                        withNote: false);
+                    if (res != null) {
+                      setBalanceManual(data, res['amount'] as double,
+                          mode: 'employed', accountId: a.id);
+                      await onChanged();
+                    }
+                  },
+                  onEdit: () async {
+                    final result = await showAccountFormDialog(context, account: a);
+                    if (result != null) {
+                      final idx = d.accounts.indexWhere((x) => x.id == a.id);
+                      if (idx != -1) {
+                        result.balance = a.balance; // saldo tidak diubah lewat form edit
+                        d.accounts[idx] = result;
+                      }
+                      await onChanged();
+                    }
+                  },
+                  onDelete: () async {
+                    final sisaJenis = a.isSavings
+                        ? d.accounts.where((x) => x.isSavings).length
+                        : d.accounts.where((x) => !x.isSavings).length;
+                    if (sisaJenis <= 1) {
+                      await showInfoDialog(context,
+                          title: 'Tidak Bisa Dihapus',
+                          message: a.isSavings
+                              ? 'Minimal harus ada satu kantong tabungan.'
+                              : 'Minimal harus ada satu kantong non-tabungan.',
+                          color: context.colors.yellow);
+                      return;
+                    }
+                    if (a.balance != 0) {
+                      await showInfoDialog(context,
+                          title: 'Kosongkan Dulu',
+                          message:
+                              'Saldo "${a.label}" masih ${fmt(a.balance)}. '
+                              'Pindahkan dulu ke kantong lain sebelum dihapus.',
+                          color: context.colors.yellow);
+                      return;
+                    }
+                    final ok = await showConfirmDialog(context,
+                        title: 'Hapus Kantong', message: 'Hapus "${a.label}"?');
+                    if (ok) {
+                      d.accounts.removeWhere((x) => x.id == a.id);
+                      await onChanged();
+                    }
+                  },
+                )),
+            const SizedBox(height: 8),
+            ActionButton(
+              label: '+ Tambah Kantong',
+              color: context.colors.accentDark,
+              foreground: context.colors.onAccentDark,
+              onPressed: () async {
+                final result = await showAccountFormDialog(context);
+                if (result != null) {
+                  d.accounts.add(result);
+                  await onChanged();
+                }
+              },
+            ),
           ],
         ),
       ),

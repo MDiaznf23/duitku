@@ -26,9 +26,298 @@ String isoDate(DateTime d) => _isoFmt.format(d);
 
 DateTime parseIso(String s) => DateTime.parse(s);
 
-/// Python: date.weekday() -> Senin=0 ... Minggu=6
 /// Dart:   DateTime.weekday -> Senin=1 ... Minggu=7
 int pythonWeekday(DateTime d) => (d.weekday - 1) % 7;
+
+List<HistoryEntry> historyOf(AppData data, [String? mode]) =>
+    (mode ?? data.mode) == 'unemployed'
+        ? data.unemployed.history
+        : data.employed.history;
+
+double balanceOf(AppData data, [String? mode]) =>
+    (mode ?? data.mode) == 'unemployed'
+        ? data.unemployed.totalBalance
+        : data.employed.totalBalance;
+
+Account _resolveAccount(EmployedData d, String? accountId) {
+  if (accountId != null) {
+    for (final a in d.accounts) {
+      if (a.id == accountId) return a;
+    }
+  }
+  return d.defaultAccount;
+}
+
+Account _resolveSavings(EmployedData d, String? accountId) {
+  if (accountId != null) {
+    for (final a in d.accounts) {
+      if (a.id == accountId) return a;
+    }
+  }
+  return d.defaultSavings;
+}
+
+void _addToBalance(AppData data, double delta, [String? mode, String? accountId]) {
+  final m = mode ?? data.mode;
+  if (m == 'unemployed') {
+    data.unemployed.totalBalance += delta;
+  } else {
+    _resolveAccount(data.employed, accountId).balance += delta;
+  }
+}
+
+/// Uang masuk ke satu kantong.
+HistoryEntry addIncome(
+  AppData data, {
+  required double amount,
+  required String note,
+  String kind = 'normal',
+  String? date,
+  String? mode,
+  String? accountId,
+}) {
+  final m = mode ?? data.mode;
+  final resolvedAcc = m == 'unemployed' ? null : _resolveAccount(data.employed, accountId).id;
+  final e = HistoryEntry(
+    date: date ?? todayStr(),
+    type: 'income',
+    note: note,
+    amount: amount,
+    kind: kind,
+    accountId: resolvedAcc,
+  );
+  _addToBalance(data, amount, m, resolvedAcc);
+  historyOf(data, m).add(e);
+  return e;
+}
+
+/// Uang keluar dari satu kantong.
+HistoryEntry addExpense(
+  AppData data, {
+  required double amount,
+  required String note,
+  String? itemId,
+  String kind = 'normal',
+  String? date,
+  String? mode,
+  String? accountId,
+}) {
+  final m = mode ?? data.mode;
+  final resolvedAcc = m == 'unemployed' ? null : _resolveAccount(data.employed, accountId).id;
+  final e = HistoryEntry(
+    date: date ?? todayStr(),
+    type: 'expense',
+    note: note,
+    amount: amount,
+    itemId: itemId,
+    kind: kind,
+    accountId: resolvedAcc,
+  );
+  _addToBalance(data, -amount, m, resolvedAcc);
+  historyOf(data, m).add(e);
+  return e;
+}
+
+void addSalary(AppData data, double amount, {String? accountId}) {
+  final d = data.employed;
+  final potongan = amount * d.savingsPercent / 100;
+  d.salary = amount;
+  d.lastSalaryDate = todayStr();
+  addIncome(data, amount: amount, note: 'Gaji masuk', kind: 'salary', accountId: accountId);
+  if (potongan > 0) {
+    transferToSavings(data, amount: potongan, note: 'Potongan tabungan', fromAccountId: accountId);
+  }
+}
+
+HistoryEntry transferBetweenAccounts(
+  AppData data, {
+  required String fromAccountId,
+  required String toAccountId,
+  required double amount,
+  String note = 'Pindah kantong',
+}) {
+  final d = data.employed;
+  final from = _resolveAccount(d, fromAccountId);
+  final to = _resolveAccount(d, toAccountId);
+  final e = HistoryEntry(
+    date: todayStr(),
+    type: 'expense',
+    note: note,
+    amount: amount,
+    kind: 'transfer',
+    accountId: from.id,
+    toAccountId: to.id,
+  );
+  from.balance -= amount;
+  to.balance += amount;
+  d.history.add(e);
+  return e;
+}
+
+HistoryEntry transferToSavings(
+  AppData data, {
+  required double amount,
+  String note = 'Pindah ke tabungan',
+  String? fromAccountId,
+  String? toSavingsAccountId,
+}) {
+  final d = data.employed;
+  final from = _resolveAccount(d, fromAccountId);
+  final to = _resolveSavings(d, toSavingsAccountId);
+  final e = HistoryEntry(
+    date: todayStr(),
+    type: 'expense',
+    note: note,
+    amount: amount,
+    kind: 'transfer',
+    accountId: from.id,
+    toAccountId: to.id,
+  );
+  from.balance -= amount;
+  to.balance += amount;
+  d.history.add(e);
+  return e;
+}
+
+/// Tarik uang dari tabungan ke satu kantong (talangan / ambil tabungan).
+HistoryEntry withdrawFromSavings(
+  AppData data, {
+  required double amount,
+  String note = 'Ambil dari tabungan',
+  String? toAccountId,
+  String? fromSavingsAccountId,
+}) {
+  final d = data.employed;
+  final to = _resolveAccount(d, toAccountId);
+  final from = _resolveSavings(d, fromSavingsAccountId);
+  final e = HistoryEntry(
+    date: todayStr(),
+    type: 'income',
+    note: note,
+    amount: amount,
+    kind: 'transfer',
+    accountId: to.id,
+    toAccountId: from.id,
+  );
+  from.balance -= amount;
+  to.balance += amount;
+  d.history.add(e);
+  return e;
+}
+
+void setBalanceManual(AppData data, double newBalance, {String? mode, String? accountId}) {
+  final m = mode ?? data.mode;
+  final resolvedAcc = m == 'unemployed' ? null : _resolveAccount(data.employed, accountId).id;
+  final current = m == 'unemployed'
+      ? data.unemployed.totalBalance
+      : data.employed.accountById(resolvedAcc).balance;
+  final selisih = newBalance - current;
+  _addToBalance(data, selisih, m, resolvedAcc);
+  historyOf(data, m).add(HistoryEntry(
+    date: todayStr(),
+    type: selisih >= 0 ? 'income' : 'expense',
+    note: 'Set saldo manual',
+    amount: selisih.abs(),
+    kind: 'adjust',
+    accountId: resolvedAcc,
+  ));
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// HAPUS SATU TRANSAKSI
+/// ─────────────────────────────────────────────────────────────
+class DeleteResult {
+  final bool ok;
+  final String? reason;
+  const DeleteResult(this.ok, [this.reason]);
+}
+
+DeleteResult deleteEntry(AppData data, String entryId, [String? mode]) {
+  final m = mode ?? data.mode;
+  final hist = historyOf(data, m);
+  final idx = hist.indexWhere((h) => h.id == entryId);
+  if (idx == -1) return const DeleteResult(false, 'Transaksi tidak ditemukan.');
+
+  final e = hist[idx];
+
+  if (e.locked) {
+    return const DeleteResult(false,
+        'Baris ini entri pembukuan otomatis dan tidak bisa dihapus sendiri. '
+        'Hapus entri gaji induknya kalau memang mau dibatalkan.');
+  }
+  if (e.kind == 'adjust') {
+    return const DeleteResult(false,
+        'Set saldo manual tidak bisa dihapus, karena saldo sesudahnya sudah '
+        'dipakai transaksi lain. Kalau angkanya salah, set saldo manual lagi '
+        'dengan angka yang benar.');
+  }
+
+  // 1. balik efeknya ke saldo
+  if (e.kind == 'transfer') {
+    final d = data.employed;
+    final accAcc = d.accountById(e.accountId);
+    final toAcc = d.accountById(e.toAccountId);
+    if (e.type == 'expense') {
+      // accountId kehilangan, toAccountId menerima -> dibalik
+      accAcc.balance += e.amount;
+      toAcc.balance -= e.amount;
+    } else {
+      // accountId menerima, toAccountId kehilangan -> dibalik
+      accAcc.balance -= e.amount;
+      toAcc.balance += e.amount;
+    }
+  } else if (e.type == 'income') {
+    _addToBalance(data, -e.amount, m, e.accountId);
+  } else {
+    _addToBalance(data, e.amount, m, e.accountId);
+  }
+
+  // 2. lepas centang checklist kalau entri ini berasal dari pos
+  if (e.itemId != null) {
+    final log = data.dailyLog[e.date];
+    if (log != null) log[e.itemId!] = false;
+
+    final items = m == 'unemployed'
+        ? data.unemployed.dailyAllocations
+        : data.employed.operationals;
+    for (final it in items) {
+      if (it.id == e.itemId &&
+          it.variableAmount &&
+          it.recentAmounts.isNotEmpty &&
+          it.recentAmounts.last == e.amount) {
+        it.recentAmounts.removeLast();
+        break;
+      }
+    }
+  }
+
+  hist.removeAt(idx);
+
+  // 3. kalau yang dihapus adalah gaji, ikut hapus potongan tabungannya
+  //    dan mundurkan tanggal gajian ke entri gaji sebelumnya
+  if (e.kind == 'salary') {
+    final pair = hist.indexWhere((h) =>
+        h.kind == 'transfer' &&
+        h.type == 'expense' &&
+        h.date == e.date &&
+        h.note.toLowerCase().startsWith('potongan tabungan'));
+    if (pair != -1) {
+      final p = hist[pair];
+      final accAcc = data.employed.accountById(p.accountId);
+      final toAcc = data.employed.accountById(p.toAccountId);
+      accAcc.balance += p.amount;
+      toAcc.balance -= p.amount;
+      hist.removeAt(pair);
+    }
+    final prevSalary =
+        hist.where((h) => h.kind == 'salary').map((h) => h.date).toList()
+          ..sort();
+    data.employed.lastSalaryDate =
+        prevSalary.isEmpty ? null : prevSalary.last;
+  }
+
+  return const DeleteResult(true);
+}
 
 /// ─────────────────────────────────────────────────────────────
 /// Apakah pos aktif hari ini — MODE PENGANGGURAN
@@ -166,11 +455,14 @@ double _estimasiSisaPeriode(
   DateTime start,
   DateTime todayD,
   int period,
-  int daysLeft,
-) {
+  int daysLeft, {
+  bool skipCheckedToday = false,
+}) {
   double total = 0;
   final todayWd = pythonWeekday(todayD);
+  final logToday = data.dailyLog[isoDate(todayD)] ?? const <String, bool>{};
   for (final op in ops) {
+    final sudahHariIni = skipCheckedToday && logToday[op.id] == true;
     if (op.freq == 'period') {
       final since = todayD.difference(start).inDays;
       final scanDays = math.max(since + 1, period);
@@ -182,7 +474,7 @@ double _estimasiSisaPeriode(
       if (count < op.freqCount) total += op.amount;
     } else if (op.freq == 'biweekly') {
       final anchor = op.biweeklyAnchor != null ? parseIso(op.biweeklyAnchor!) : todayD;
-      for (int offset = 0; offset < daysLeft; offset++) {
+      for (int offset = sudahHariIni ? 1 : 0; offset < daysLeft; offset++) {
         final dt = todayD.add(Duration(days: offset));
         final wd = pythonWeekday(dt);
         if (op.biweeklyDays.contains(wd) &&
@@ -192,11 +484,12 @@ double _estimasiSisaPeriode(
       }
     } else {
       final days = op.days;
+      final mulai = sudahHariIni ? 1 : 0;
       if (days == null || days.isEmpty) {
-        total += op.amount * daysLeft;
+        total += op.amount * (daysLeft - mulai);
       } else {
         int cnt = 0;
-        for (int offset = 0; offset < daysLeft; offset++) {
+        for (int offset = mulai; offset < daysLeft; offset++) {
           if (days.contains((todayWd + offset) % 7)) cnt++;
         }
         total += op.amount * cnt;
@@ -206,13 +499,66 @@ double _estimasiSisaPeriode(
   return total;
 }
 
+class RekapKebutuhan {
+  final double prioritas;
+  final double nonPrioritas;
+  final double saldo;
+  final int daysLeft;
+
+  const RekapKebutuhan({
+    required this.prioritas,
+    required this.nonPrioritas,
+    required this.saldo,
+    required this.daysLeft,
+  });
+
+  double get total => prioritas + nonPrioritas;
+
+  /// Sisa saldo setelah semua kebutuhan sampai gajian ditutup.
+  /// Negatif = memang kurang.
+  double get sisaBebas => saldo - total;
+
+  /// Sisa saldo kalau yang non-prioritas direm total.
+  double get sisaKalauHematTotal => saldo - prioritas;
+
+  /// Rata-rata uang bebas per hari sampai gajian.
+  double get bebasPerHari => daysLeft > 0 ? sisaBebas / daysLeft : sisaBebas;
+
+  bool get cukupSemua => sisaBebas >= 0;
+  bool get cukupPrioritas => sisaKalauHematTotal >= 0;
+}
+
+RekapKebutuhan hitungRekapKebutuhan(AppData data) {
+  final d = data.employed;
+  final start =
+      d.lastSalaryDate != null ? parseIso(d.lastSalaryDate!) : DateTime.now();
+  final todayD = DateTime.now();
+  final daysLeft = _daysLeftInPeriod(d, start, todayD);
+
+  double est(List<AllocItem> ops) => _estimasiSisaPeriode(
+        data,
+        ops,
+        start,
+        todayD,
+        d.salaryPeriodDays,
+        daysLeft,
+        skipCheckedToday: true,
+      );
+
+  return RekapKebutuhan(
+    prioritas: est(d.operationals.where((o) => o.priority).toList()),
+    nonPrioritas: est(d.operationals.where((o) => !o.priority).toList()),
+    saldo: d.totalBalance,
+    daysLeft: daysLeft,
+  );
+}
+
 int _daysLeftInPeriod(EmployedData d, DateTime start, DateTime todayD) {
   final daysSinceStart = todayD.difference(start).inDays;
   return math.max(d.salaryPeriodDays - daysSinceStart, 1);
 }
 
 /// Daftar operasional yang tampil hari ini (menyembunyikan non-prioritas
-/// otomatis kalau saldo diperkirakan tidak cukup sampai akhir periode).
 List<AllocItem> visibleOperationalsToday(AppData data) {
   final d = data.employed;
   if (d.operationals.isEmpty) return [];
@@ -230,14 +576,14 @@ List<AllocItem> visibleOperationalsToday(AppData data) {
   return activeOps;
 }
 
-/// Hasil cek saldo operasional (dipakai untuk munculkan dialog di UI)
+/// Hasil cek saldo operasional 
 class SaldoCheckResult {
   final String type; // 'none' | 'limited' | 'talangan' | 'critical'
   final String? message;
   SaldoCheckResult(this.type, this.message);
 }
 
-/// Port dari _check_saldo_operasional — bisa MEMUTASI data.employed (memakai tabungan sebagai talangan) sehingga caller wajib Store.save setelah memanggil ini kalau type == 'talangan'.
+/// Port dari _check_saldo_operasional 
 SaldoCheckResult checkSaldoOperasional(AppData data) {
   final d = data.employed;
   final today = todayStr();
@@ -282,10 +628,7 @@ SaldoCheckResult checkSaldoOperasional(AppData data) {
 
   if (saldo + savings >= estPriority) {
     final kekurangan = estPriority - saldo;
-    d.savingsBalance -= kekurangan;
-    d.totalBalance += kekurangan;
-    d.history.add(HistoryEntry(
-        date: today, type: 'income', note: 'Talangan dari tabungan', amount: kekurangan));
+    withdrawFromSavings(data, amount: kekurangan, note: 'Talangan dari tabungan');
     return SaldoCheckResult(
       'talangan',
       'Saldo utama tidak cukup untuk operasional prioritas.\n\n'
@@ -336,12 +679,8 @@ ToggleResult? toggleItem(AppData data, String itemId, bool checked, String mode,
   if (checked && !was) {
     final amt = it.variableAmount ? (actualAmount ?? it.amount) : it.amount;
 
-    if (mode == 'unemployed') {
-      data.unemployed.totalBalance -= amt;
-    } else {
-      data.employed.totalBalance -= amt;
-    }
-    hist.add(HistoryEntry(date: today, type: 'expense', note: it.label, amount: amt));
+    addExpense(data,
+        amount: amt, note: it.label, itemId: it.id, date: today, mode: mode);
     if (it.freq == 'biweekly' && it.biweeklyAnchor == null) {
       it.biweeklyAnchor = today;
     }
@@ -364,25 +703,37 @@ ToggleResult? toggleItem(AppData data, String itemId, bool checked, String mode,
     final saldoResult = mode == 'employed' ? checkSaldoOperasional(data) : null;
     return ToggleResult(saldoCheck: saldoResult, priceReminder: reminder);
   } else if (!checked && was) {
-    // Cari entri histori aslinya supaya jumlah yang dikembalikan SESUAI
-    double refunded = it.amount;
-    for (int i = hist.length - 1; i >= 0; i--) {
-      if (hist[i].note == it.label && hist[i].date == today && hist[i].type == 'expense') {
-        refunded = hist[i].amount;
-        hist.removeAt(i);
-        break;
-      }
-    }
-
-    if (mode == 'unemployed') {
-      data.unemployed.totalBalance += refunded;
+    final entry = _findEntryForItem(hist, it, today);
+    if (entry != null) {
+      // deleteEntry sudah sekalian mengembalikan saldo, melepas centang,
+      // dan membatalkan catatan tren harga.
+      deleteEntry(data, entry.id, mode);
     } else {
-      data.employed.totalBalance += refunded;
+      // Tidak ada entri pasangannya (mis. sudah dihapus manual dari Riwayat).
+      // Cukup lepas centangnya, saldo tidak perlu disentuh.
+      data.dailyLog[today]![itemId] = false;
     }
+  }
+  return null;
+}
 
-    // Batalkan pencatatan tren harga untuk nilai yang baru saja di-undo.
-    if (it.variableAmount && it.recentAmounts.isNotEmpty && it.recentAmounts.last == refunded) {
-      it.recentAmounts.removeLast();
+/// Cari baris riwayat milik satu pos pada tanggal tertentu.
+/// Prioritas ke itemId; kalau tidak ada (data lama hasil migrasi yang gagal
+/// disambungkan), baru jatuh ke pencocokan label.
+HistoryEntry? _findEntryForItem(
+    List<HistoryEntry> hist, AllocItem it, String date) {
+  for (int i = hist.length - 1; i >= 0; i--) {
+    final h = hist[i];
+    if (h.itemId == it.id && h.date == date && h.type == 'expense') return h;
+  }
+  for (int i = hist.length - 1; i >= 0; i--) {
+    final h = hist[i];
+    if (h.itemId == null &&
+        h.kind == 'normal' &&
+        h.note == it.label &&
+        h.date == date &&
+        h.type == 'expense') {
+      return h;
     }
   }
   return null;
@@ -393,7 +744,6 @@ ToggleResult? toggleItem(AppData data, String itemId, bool checked, String mode,
 /// ─────────────────────────────────────────────────────────────
 void resetToday(AppData data) {
   final mode = data.mode;
-  final kd = mode == 'unemployed' ? data.unemployed : data.employed;
   final items = mode == 'unemployed' ? data.unemployed.dailyAllocations : data.employed.operationals;
   final today = todayStr();
   final log = data.dailyLog[today] ?? {};
@@ -401,23 +751,8 @@ void resetToday(AppData data) {
 
   for (final item in items) {
     if (log[item.id] == true) {
-      double refunded = item.amount;
-      for (int i = hist.length - 1; i >= 0; i--) {
-        if (hist[i].note == item.label && hist[i].date == today && hist[i].type == 'expense') {
-          refunded = hist[i].amount;
-          hist.removeAt(i);
-          break;
-        }
-      }
-      if (mode == 'unemployed') {
-        data.unemployed.totalBalance += refunded;
-      } else {
-        data.employed.totalBalance += refunded;
-      }
-      // Batalkan pencatatan tren harga untuk nilai yang baru saja di-reset.
-      if (item.variableAmount && item.recentAmounts.isNotEmpty && item.recentAmounts.last == refunded) {
-        item.recentAmounts.removeLast();
-      }
+      final entry = _findEntryForItem(hist, item, today);
+      if (entry != null) deleteEntry(data, entry.id, mode);
     }
   }
   data.dailyLog[today] = {};
@@ -425,9 +760,9 @@ void resetToday(AppData data) {
 
 void resetSaldoEmployed(AppData data) {
   final d = data.employed;
-  d.totalBalance = 0;
-  d.history = d.history.where((h) => h.type != 'income').toList();
-  d.history.add(HistoryEntry(date: todayStr(), type: 'expense', note: 'Reset saldo manual', amount: 0));
+  for (final a in d.accounts.where((a) => !a.isSavings)) {
+    if (a.balance != 0) setBalanceManual(data, 0, accountId: a.id);
+  }
 }
 
 void resetHistoryEmployed(AppData data) {
@@ -457,9 +792,100 @@ void resetAllUnemployed(AppData data) {
 
 void resetAllEmployed(AppData data) {
   final d = data.employed;
-  d.totalBalance = 0;
-  d.savingsBalance = 0;
+  for (final a in d.accounts) {
+    a.balance = 0;
+  }
   d.history = [];
   d.lastSalaryDate = null;
   data.dailyLog[todayStr()] = {};
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// RIWAYAT: rekap harian & per periode gaji
+/// ─────────────────────────────────────────────────────────────
+
+bool entryCountsInSummary(HistoryEntry e) => e.kind != 'transfer' && e.kind != 'adjust';
+
+class DayGroup {
+  final String date;
+  final List<HistoryEntry> entries;
+  final double income;
+  final double expense;
+  const DayGroup({
+    required this.date,
+    required this.entries,
+    required this.income,
+    required this.expense,
+  });
+  double get net => income - expense;
+}
+
+/// Kelompokkan riwayat per tanggal, urut TERLAMA -> TERBARU.
+List<DayGroup> groupByDay(List<HistoryEntry> entries) {
+  final byDate = <String, List<HistoryEntry>>{};
+  for (final e in entries) {
+    byDate.putIfAbsent(e.date, () => []).add(e);
+  }
+  final dates = byDate.keys.toList()..sort();
+  return dates.map((date) {
+    final list = byDate[date]!;
+    double inc = 0, exp = 0;
+    for (final e in list) {
+      if (!entryCountsInSummary(e)) continue;
+      if (e.type == 'income') {
+        inc += e.amount;
+      } else {
+        exp += e.amount;
+      }
+    }
+    return DayGroup(date: date, entries: list, income: inc, expense: exp);
+  }).toList();
+}
+
+const _bulanPendek = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+];
+
+String fmtTanggalPendek(String iso) {
+  final d = parseIso(iso);
+  return '${d.day} ${_bulanPendek[d.month - 1]}';
+}
+
+class SalaryPeriod {
+  final String label;
+  final String startDate; // inklusif
+  final String? endDate; // inklusif, null = masih berjalan (sampai hari ini)
+  const SalaryPeriod({required this.label, required this.startDate, this.endDate});
+}
+
+/// Daftar periode gaji, 
+List<SalaryPeriod> salaryPeriods(EmployedData d) {
+  final salaryDates = d.history
+      .where((e) => e.kind == 'salary')
+      .map((e) => e.date)
+      .toSet()
+      .toList()
+    ..sort();
+  if (salaryDates.isEmpty) return [];
+
+  final periods = <SalaryPeriod>[];
+  for (int i = 0; i < salaryDates.length; i++) {
+    final start = salaryDates[i];
+    final end = i + 1 < salaryDates.length
+        ? isoDate(parseIso(salaryDates[i + 1]).subtract(const Duration(days: 1)))
+        : null;
+    final label = end == null
+        ? '${fmtTanggalPendek(start)} — sekarang'
+        : '${fmtTanggalPendek(start)} – ${fmtTanggalPendek(end)}';
+    periods.add(SalaryPeriod(label: label, startDate: start, endDate: end));
+  }
+  return periods.reversed.toList();
+}
+
+List<HistoryEntry> entriesInPeriod(List<HistoryEntry> all, SalaryPeriod p) {
+  return all.where((e) {
+    if (e.date.compareTo(p.startDate) < 0) return false;
+    if (p.endDate != null && e.date.compareTo(p.endDate!) > 0) return false;
+    return true;
+  }).toList();
 }

@@ -13,8 +13,6 @@ double? _parseRupiah(String s) {
 Future<bool> showConfirmDialog(BuildContext context, {required String title, required String message}) async {
   final res = await showDialog<bool>(
     context: context,
-    // Tanpa backgroundColor kustom: AlertDialog M3 otomatis pakai
-    // colorScheme.surfaceContainerHigh sesuai spesifikasi Material 3.
     builder: (ctx) => AlertDialog(
       title: Text(title),
       content: Text(message),
@@ -38,8 +36,6 @@ Future<void> showInfoDialog(BuildContext context, {required String title, requir
   );
 }
 
-/// Dialog input jumlah (+ opsional catatan) — dipakai untuk Uang Masuk,
-/// Pengeluaran, Set Saldo, Pemasukan tambahan.
 Future<Map<String, dynamic>?> showAmountDialog(
   BuildContext context, {
   required String title,
@@ -47,54 +43,76 @@ Future<Map<String, dynamic>?> showAmountDialog(
   bool withNote = true,
   String noteLabel = 'Catatan',
   String noteHint = '',
+  List<Account>? accounts,
+  String? initialAccountId,
 }) async {
   final amtCtrl = TextEditingController(text: initialAmount ?? '');
   final noteCtrl = TextEditingController(text: noteHint);
+  final showAccountPicker = accounts != null && accounts.length > 1;
+  String? selectedAccountId = initialAccountId ?? (accounts != null && accounts.isNotEmpty ? accounts.first.id : null);
 
   return showDialog<Map<String, dynamic>>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title, textAlign: TextAlign.center),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: amtCtrl,
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Jumlah (Rp)'),
-          ),
-          if (withNote) ...[
-            const SizedBox(height: 10),
+    builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
+      return AlertDialog(
+        title: Text(title, textAlign: TextAlign.center),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
             TextField(
-              controller: noteCtrl,
-              decoration: InputDecoration(labelText: noteLabel),
+              controller: amtCtrl,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Jumlah (Rp)'),
             ),
+            if (showAccountPicker) ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: selectedAccountId,
+                decoration: const InputDecoration(labelText: 'Kantong'),
+                items: accounts
+                    .map((a) => DropdownMenuItem(value: a.id, child: Text(a.label)))
+                    .toList(),
+                onChanged: (v) => setState(() => selectedAccountId = v),
+              ),
+            ],
+            if (withNote) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: noteCtrl,
+                decoration: InputDecoration(labelText: noteLabel),
+              ),
+            ],
           ],
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
-        ElevatedButton(
-          onPressed: () {
-            final amt = _parseRupiah(amtCtrl.text);
-            if (amt == null) {
-              showInfoDialog(ctx, title: 'Error', message: 'Jumlah tidak valid', color: ctx.colors.red);
-              return;
-            }
-            Navigator.pop(ctx, {'amount': amt, 'note': noteCtrl.text.trim()});
-          },
-          child: const Text('Simpan'),
         ),
-      ],
-    ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () {
+              final amt = _parseRupiah(amtCtrl.text);
+              if (amt == null) {
+                showInfoDialog(ctx, title: 'Error', message: 'Jumlah tidak valid', color: ctx.colors.red);
+                return;
+              }
+              Navigator.pop(ctx, {
+                'amount': amt,
+                'note': noteCtrl.text.trim(),
+                if (accounts != null) 'accountId': selectedAccountId,
+              });
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      );
+    }),
   );
 }
 
-/// Dialog input gaji dengan info tabungan/bisa-pakai yang update live.
-Future<double?> showSalaryDialog(BuildContext context, EmployedData d) async {
+Future<Map<String, dynamic>?> showSalaryDialog(BuildContext context, EmployedData d) async {
   final ctrl = TextEditingController(text: d.salary > 0 ? d.salary.toStringAsFixed(0) : '');
-  return showDialog<double>(
+  final nonSavings = d.accounts.where((a) => !a.isSavings).toList();
+  String selectedAccountId = d.defaultAccount.id;
+  return showDialog<Map<String, dynamic>>(
     context: context,
     builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
       final amt = _parseRupiah(ctrl.text) ?? 0;
@@ -111,6 +129,17 @@ Future<double?> showSalaryDialog(BuildContext context, EmployedData d) async {
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(labelText: 'Jumlah Gaji (Rp)'),
             ),
+            if (nonSavings.length > 1) ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: selectedAccountId,
+                decoration: const InputDecoration(labelText: 'Masuk ke kantong'),
+                items: nonSavings
+                    .map((a) => DropdownMenuItem(value: a.id, child: Text(a.label)))
+                    .toList(),
+                onChanged: (v) => setState(() => selectedAccountId = v!),
+              ),
+            ],
             const SizedBox(height: 8),
             Text('Tabungan: ${fmt(sav)}  |  Bisa pakai: ${fmt(amt - sav)}',
                 style: TextStyle(fontSize: 11, color: ctx.colors.textMuted)),
@@ -125,9 +154,166 @@ Future<double?> showSalaryDialog(BuildContext context, EmployedData d) async {
                 showInfoDialog(ctx, title: 'Error', message: 'Jumlah tidak valid', color: ctx.colors.red);
                 return;
               }
-              Navigator.pop(ctx, v);
+              Navigator.pop(ctx, {'amount': v, 'accountId': selectedAccountId});
             },
             child: const Text('Simpan'),
+          ),
+        ],
+      );
+    }),
+  );
+}
+
+/// Dialog pindah uang antar dua kantong (termasuk ke/dari tabungan).
+Future<Map<String, dynamic>?> showTransferDialog(
+  BuildContext context, {
+  required List<Account> accounts,
+  String title = 'Pindah Kantong',
+}) async {
+  if (accounts.length < 2) return null;
+  final amtCtrl = TextEditingController();
+  final noteCtrl = TextEditingController();
+  String fromId = accounts[0].id;
+  String toId = accounts[1].id;
+
+  return showDialog<Map<String, dynamic>>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
+      return AlertDialog(
+        title: Text(title, textAlign: TextAlign.center),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              initialValue: fromId,
+              decoration: const InputDecoration(labelText: 'Dari'),
+              items: accounts
+                  .map((a) => DropdownMenuItem(value: a.id, child: Text(a.label)))
+                  .toList(),
+              onChanged: (v) => setState(() {
+                fromId = v!;
+                if (fromId == toId) {
+                  final alt = accounts.firstWhere((a) => a.id != fromId, orElse: () => accounts[0]);
+                  toId = alt.id;
+                }
+              }),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: toId,
+              decoration: const InputDecoration(labelText: 'Ke'),
+              items: accounts
+                  .where((a) => a.id != fromId)
+                  .map((a) => DropdownMenuItem(value: a.id, child: Text(a.label)))
+                  .toList(),
+              onChanged: (v) => setState(() => toId = v!),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: amtCtrl,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Jumlah (Rp)'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: noteCtrl,
+              decoration: const InputDecoration(labelText: 'Catatan (opsional)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () {
+              final amt = _parseRupiah(amtCtrl.text);
+              if (amt == null || amt <= 0) {
+                showInfoDialog(ctx, title: 'Error', message: 'Jumlah tidak valid', color: ctx.colors.red);
+                return;
+              }
+              if (fromId == toId) {
+                showInfoDialog(ctx, title: 'Error', message: 'Kantong asal dan tujuan harus beda', color: ctx.colors.red);
+                return;
+              }
+              Navigator.pop(ctx, {
+                'from': fromId,
+                'to': toId,
+                'amount': amt,
+                'note': noteCtrl.text.trim(),
+              });
+            },
+            child: const Text('Pindahkan'),
+          ),
+        ],
+      );
+    }),
+  );
+}
+
+/// Dialog tambah/edit satu kantong (Tunai, m-Banking, e-Wallet, dst).
+Future<Account?> showAccountFormDialog(BuildContext context, {Account? account}) async {
+  final isEdit = account != null;
+  final nameCtrl = TextEditingController(text: account?.label ?? '');
+  String type = account?.type ?? 'cash';
+  bool isSavings = account?.isSavings ?? false;
+
+  return showDialog<Account>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
+      return AlertDialog(
+        title: Text(isEdit ? 'Edit Kantong' : 'Tambah Kantong', textAlign: TextAlign.center),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Nama kantong:', style: TextStyle(fontSize: 11, color: ctx.colors.textMuted)),
+            TextField(controller: nameCtrl, decoration: const InputDecoration(hintText: 'mis. BCA, GoPay')),
+            const SizedBox(height: 10),
+            Text('Jenis:', style: TextStyle(fontSize: 11, color: ctx.colors.textMuted)),
+            Wrap(
+              spacing: 4,
+              children: accountTypeLabels.entries
+                  .map((e) => ChoiceChip(
+                        label: Text(e.value),
+                        selected: type == e.key,
+                        onSelected: (_) => setState(() => type = e.key),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 4),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('Ini kantong tabungan', style: TextStyle(fontSize: 12)),
+              subtitle: Text(
+                  'Tidak dihitung sebagai saldo yang bisa dipakai sehari-hari.',
+                  style: TextStyle(fontSize: 10, color: ctx.colors.textMuted)),
+              value: isSavings,
+              onChanged: (v) => setState(() => isSavings = v ?? false),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) {
+                showInfoDialog(ctx, title: 'Error', message: 'Nama kantong tidak boleh kosong', color: ctx.colors.red);
+                return;
+              }
+              Navigator.pop(
+                ctx,
+                Account(
+                  id: account?.id,
+                  label: name,
+                  type: type,
+                  balance: account?.balance ?? 0,
+                  isSavings: isSavings,
+                ),
+              );
+            },
+            child: Text(isEdit ? 'Simpan' : 'Tambah'),
           ),
         ],
       );

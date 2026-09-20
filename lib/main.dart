@@ -88,7 +88,7 @@ class _AppShellState extends State<AppShell> {
     final tabs = [
       BerandaTab(data: data!, onChanged: _refresh),
       AlokasiTab(data: data!, onChanged: _refresh),
-      RiwayatTab(data: data!),
+      RiwayatTab(data: data!, onChanged: _refresh),
       PengaturanTab(data: data!, onChanged: _refresh, onImport: _importData),
     ];
 

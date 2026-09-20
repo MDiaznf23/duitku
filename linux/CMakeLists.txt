@@ -126,3 +126,10 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+install(CODE "
+  file(GLOB_RECURSE JNI_FIX_LIBS \"${INSTALL_BUNDLE_LIB_DIR}/*.so\")
+  foreach(_lib \${JNI_FIX_LIBS})
+    execute_process(COMMAND chmod +x \${_lib})
+  endforeach()
+  " COMPONENT Runtime)

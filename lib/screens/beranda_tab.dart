@@ -118,8 +118,11 @@ class BerandaTab extends StatelessWidget {
               onPressed: () async {
                 final res = await showAmountDialog(context, title: '+ Uang Masuk', noteHint: 'Uang masuk');
                 if (res != null) {
-                  d.totalBalance += res['amount'] as double;
-                  d.history.add(HistoryEntry(date: todayStr(), type: 'income', note: (res['note'] as String).isEmpty ? 'Uang masuk' : res['note'], amount: res['amount']));
+                  addIncome(data,
+                      amount: res['amount'] as double,
+                      note: (res['note'] as String).isEmpty
+                          ? 'Uang masuk'
+                          : res['note'] as String);
                   await onChanged();
                 }
               }),
@@ -130,8 +133,11 @@ class BerandaTab extends StatelessWidget {
               onPressed: () async {
                 final res = await showAmountDialog(context, title: '- Pengeluaran', noteHint: 'Pengeluaran');
                 if (res != null) {
-                  d.totalBalance -= res['amount'] as double;
-                  d.history.add(HistoryEntry(date: todayStr(), type: 'expense', note: (res['note'] as String).isEmpty ? 'Pengeluaran' : res['note'], amount: res['amount']));
+                  addExpense(data,
+                      amount: res['amount'] as double,
+                      note: (res['note'] as String).isEmpty
+                          ? 'Pengeluaran'
+                          : res['note'] as String);
                   await onChanged();
                 }
               }),
@@ -143,8 +149,7 @@ class BerandaTab extends StatelessWidget {
                 final res = await showAmountDialog(context,
                     title: 'Set Saldo Manual', initialAmount: d.totalBalance.toStringAsFixed(0), withNote: false);
                 if (res != null) {
-                  d.totalBalance = res['amount'] as double;
-                  d.history.add(HistoryEntry(date: todayStr(), type: 'income', note: 'Set saldo manual', amount: res['amount']));
+                  setBalanceManual(data, res['amount'] as double);
                   await onChanged();
                 }
               }),
@@ -178,6 +183,7 @@ class BerandaTab extends StatelessWidget {
 
     return [
       StatGrid(cards),
+      AccountBreakdown(accounts: d.accounts.where((a) => !a.isSavings).toList()),
       const SizedBox(height: 8),
       Container(
         padding: const EdgeInsets.all(10),
@@ -200,6 +206,8 @@ class BerandaTab extends StatelessWidget {
           ],
         ),
       ),
+      if (d.salary > 0 && d.operationals.isNotEmpty)
+        RekapKebutuhanCard(rekap: hitungRekapKebutuhan(data)),
       const SectionTitle('Operasional Hari Ini'),
       if (d.operationals.isEmpty)
         Padding(
@@ -225,23 +233,22 @@ class BerandaTab extends StatelessWidget {
               onToggle: (v) => _handleToggle(context, o, v, 'employed'),
             )),
       const SizedBox(height: 12),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
+      GridView.count(
+        crossAxisCount: 3,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 2.6,
         children: [
           ActionButton(
               label: '+ Input Gaji',
               color: context.colors.secondaryDark,
               foreground: context.colors.onSecondaryDark,
               onPressed: () async {
-                final amt = await showSalaryDialog(context, d);
-                if (amt != null) {
-                  final sav = amt * d.savingsPercent / 100;
-                  d.salary = amt;
-                  d.totalBalance += (amt - sav);
-                  d.savingsBalance += sav;
-                  d.lastSalaryDate = todayStr();
-                  d.history.add(HistoryEntry(date: todayStr(), type: 'income', note: 'Gaji masuk', amount: amt));
+                final res = await showSalaryDialog(context, d);
+                if (res != null) {
+                  addSalary(data, res['amount'] as double, accountId: res['accountId'] as String?);
                   await onChanged();
                   final result = checkSaldoOperasional(data);
                   if (result.type != 'none' && context.mounted) {
@@ -255,10 +262,17 @@ class BerandaTab extends StatelessWidget {
               color: context.colors.secondaryDark,
               foreground: context.colors.onSecondaryDark,
               onPressed: () async {
-                final res = await showAmountDialog(context, title: '+ Pemasukan Tambahan', noteHint: 'Pemasukan tambahan');
+                final res = await showAmountDialog(context,
+                    title: '+ Pemasukan Tambahan',
+                    noteHint: 'Pemasukan tambahan',
+                    accounts: d.accounts.where((a) => !a.isSavings).toList());
                 if (res != null) {
-                  d.totalBalance += res['amount'] as double;
-                  d.history.add(HistoryEntry(date: todayStr(), type: 'income', note: (res['note'] as String).isEmpty ? 'Pemasukan tambahan' : res['note'], amount: res['amount']));
+                  addIncome(data,
+                      amount: res['amount'] as double,
+                      note: (res['note'] as String).isEmpty
+                          ? 'Pemasukan tambahan'
+                          : res['note'] as String,
+                      accountId: res['accountId'] as String?);
                   await onChanged();
                   final result = checkSaldoOperasional(data);
                   if (result.type != 'none' && context.mounted) {
@@ -272,10 +286,17 @@ class BerandaTab extends StatelessWidget {
               color: context.colors.tertiaryDark,
               foreground: context.colors.onTertiaryDark,
               onPressed: () async {
-                final res = await showAmountDialog(context, title: '- Pengeluaran', noteHint: 'Pengeluaran');
+                final res = await showAmountDialog(context,
+                    title: '- Pengeluaran',
+                    noteHint: 'Pengeluaran',
+                    accounts: d.accounts.where((a) => !a.isSavings).toList());
                 if (res != null) {
-                  d.totalBalance -= res['amount'] as double;
-                  d.history.add(HistoryEntry(date: todayStr(), type: 'expense', note: (res['note'] as String).isEmpty ? 'Pengeluaran' : res['note'], amount: res['amount']));
+                  addExpense(data,
+                      amount: res['amount'] as double,
+                      note: (res['note'] as String).isEmpty
+                          ? 'Pengeluaran'
+                          : res['note'] as String,
+                      accountId: res['accountId'] as String?);
                   await onChanged();
                   final result = checkSaldoOperasional(data);
                   if (result.type != 'none' && context.mounted) {
@@ -283,6 +304,91 @@ class BerandaTab extends StatelessWidget {
                     await onChanged();
                   }
                 }
+              }),
+          if (d.accounts.length > 1)
+            ActionButton(
+                label: '\u21c4 Pindah Kantong',
+                color: context.colors.muted,
+                foreground: context.colors.onMuted,
+                onPressed: () async {
+                  final res = await showTransferDialog(context, accounts: d.accounts);
+                  if (res == null) return;
+                  final amt = res['amount'] as double;
+                  final from = d.accountById(res['from'] as String);
+                  if (amt > from.balance) {
+                    if (context.mounted) {
+                      await showInfoDialog(context,
+                          title: 'Saldo Kurang',
+                          message: '${from.label} cuma ${fmt(from.balance)}.',
+                          color: context.colors.red);
+                    }
+                    return;
+                  }
+                  transferBetweenAccounts(data,
+                      fromAccountId: res['from'] as String,
+                      toAccountId: res['to'] as String,
+                      amount: amt,
+                      note: (res['note'] as String).isEmpty ? 'Pindah kantong' : res['note'] as String);
+                  await onChanged();
+                }),
+          ActionButton(
+              label: '\u2197 Ke Tabungan',
+              color: context.colors.accentDark,
+              foreground: context.colors.onAccentDark,
+              onPressed: () async {
+                final nonSavings = d.accounts.where((a) => !a.isSavings).toList();
+                final res = await showAmountDialog(context,
+                    title: 'Pindah ke Tabungan',
+                    withNote: false,
+                    accounts: nonSavings);
+                if (res == null) return;
+                final amt = res['amount'] as double;
+                if (amt <= 0) return;
+                final fromId = res['accountId'] as String? ?? d.defaultAccount.id;
+                final from = d.accountById(fromId);
+                if (amt > from.balance) {
+                  if (context.mounted) {
+                    await showInfoDialog(context,
+                        title: 'Saldo Kurang',
+                        message: '${from.label} cuma ${fmt(from.balance)}.',
+                        color: context.colors.red);
+                  }
+                  return;
+                }
+                transferToSavings(data, amount: amt, fromAccountId: fromId);
+                await onChanged();
+                final result = checkSaldoOperasional(data);
+                if (result.type != 'none' && context.mounted) {
+                  await showInfoDialog(context,
+                      title: 'Info Saldo', message: result.message ?? '');
+                  await onChanged();
+                }
+              }),
+          ActionButton(
+              label: '\u2199 Ambil Tabungan',
+              color: context.colors.muted,
+              foreground: context.colors.onMuted,
+              onPressed: () async {
+                final nonSavings = d.accounts.where((a) => !a.isSavings).toList();
+                final res = await showAmountDialog(context,
+                    title: 'Ambil dari Tabungan',
+                    withNote: false,
+                    accounts: nonSavings);
+                if (res == null) return;
+                final amt = res['amount'] as double;
+                if (amt <= 0) return;
+                if (amt > d.savingsBalance) {
+                  if (context.mounted) {
+                    await showInfoDialog(context,
+                        title: 'Tabungan Kurang',
+                        message: 'Tabungan kamu cuma ${fmt(d.savingsBalance)}.',
+                        color: context.colors.red);
+                  }
+                  return;
+                }
+                withdrawFromSavings(data,
+                    amount: amt, toAccountId: res['accountId'] as String?);
+                await onChanged();
               }),
         ],
       ),

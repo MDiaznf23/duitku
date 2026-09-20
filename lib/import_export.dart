@@ -7,7 +7,7 @@ import 'models.dart';
 /// ─────────────────────────────────────────────────────────────
 /// Import / Export data.json
 ///
-/// Export: minta user pilih lokasi + nama file lewat dialog "Save As"
+/// Export: user pilih lokasi + nama file lewat dialog "Save As"
 ///
 /// Import: buka file picker, user pilih file .json 
 /// ─────────────────────────────────────────────────────────────
@@ -34,10 +34,6 @@ class ImportExport {
     );
     if (savedPath == null) return null; // user batal
 
-    // Jaga-jaga: di sebagian versi/OS, saveFile hanya mengembalikan path
-    // pilihan tanpa benar-benar menulis isinya kalau path itu adalah
-    // path file biasa (bukan content:// URI Android/iOS). Tulis ulang
-    // supaya pasti tersimpan.
     try {
       final f = File(savedPath);
       final existing = await f.exists() ? await f.readAsBytes() : null;
