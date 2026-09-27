@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import 'models.dart';
 import 'logic.dart';
@@ -8,6 +9,27 @@ double? _parseRupiah(String s) {
   final cleaned = s.replaceAll('.', '').replaceAll(',', '').trim();
   if (cleaned.isEmpty) return null;
   return double.tryParse(cleaned);
+}
+
+/// Format angka sambil diketik: "100000" -> "100.000". 
+class RibuanInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return const TextEditingValue(text: '');
+    }
+    final buffer = StringBuffer();
+    for (int i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write('.');
+      buffer.write(digits[i]);
+    }
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
 }
 
 Future<bool> showConfirmDialog(BuildContext context, {required String title, required String message}) async {
@@ -36,6 +58,7 @@ Future<void> showInfoDialog(BuildContext context, {required String title, requir
   );
 }
 
+/// Dialog input jumlah 
 Future<Map<String, dynamic>?> showAmountDialog(
   BuildContext context, {
   required String title,
@@ -62,6 +85,7 @@ Future<Map<String, dynamic>?> showAmountDialog(
             TextField(
               controller: amtCtrl,
               keyboardType: TextInputType.number,
+              inputFormatters: [RibuanInputFormatter()],
               autofocus: true,
               decoration: const InputDecoration(labelText: 'Jumlah (Rp)'),
             ),
@@ -108,6 +132,7 @@ Future<Map<String, dynamic>?> showAmountDialog(
   );
 }
 
+/// Dialog input gaji dengan info tabungan/bisa-pakai yang update live.
 Future<Map<String, dynamic>?> showSalaryDialog(BuildContext context, EmployedData d) async {
   final ctrl = TextEditingController(text: d.salary > 0 ? d.salary.toStringAsFixed(0) : '');
   final nonSavings = d.accounts.where((a) => !a.isSavings).toList();
@@ -125,6 +150,7 @@ Future<Map<String, dynamic>?> showSalaryDialog(BuildContext context, EmployedDat
             TextField(
               controller: ctrl,
               keyboardType: TextInputType.number,
+              inputFormatters: [RibuanInputFormatter()],
               autofocus: true,
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(labelText: 'Jumlah Gaji (Rp)'),
@@ -212,6 +238,7 @@ Future<Map<String, dynamic>?> showTransferDialog(
             TextField(
               controller: amtCtrl,
               keyboardType: TextInputType.number,
+              inputFormatters: [RibuanInputFormatter()],
               autofocus: true,
               decoration: const InputDecoration(labelText: 'Jumlah (Rp)'),
             ),
@@ -352,7 +379,11 @@ Future<AllocItem?> showAllocFormDialog(BuildContext context, {required String mo
               TextField(controller: nameCtrl),
               const SizedBox(height: 10),
               Text('Jumlah (Rp):', style: TextStyle(fontSize: 11, color: ctx.colors.textMuted)),
-              TextField(controller: amtCtrl, keyboardType: TextInputType.number),
+              TextField(
+                controller: amtCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [RibuanInputFormatter()],
+              ),
               const SizedBox(height: 10),
               Text('Frekuensi:', style: TextStyle(fontSize: 11, color: ctx.colors.textMuted)),
               Wrap(

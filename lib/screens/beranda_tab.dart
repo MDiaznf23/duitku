@@ -12,18 +12,22 @@ class BerandaTab extends StatelessWidget {
 
   Future<void> _handleToggle(BuildContext context, AllocItem item, bool checked, String mode) async {
     double? actualAmount;
+    String? accountId;
     if (checked && item.variableAmount) {
+      final isEmployed = mode == 'employed';
       final res = await showAmountDialog(
         context,
         title: 'Jumlah Real: ${item.label}',
         initialAmount: item.amount.toStringAsFixed(0),
         withNote: false,
+        accounts: isEmployed ? data.employed.accounts.where((a) => !a.isSavings).toList() : null,
       );
       if (res == null) return; // user batal
       actualAmount = res['amount'] as double;
+      accountId = res['accountId'] as String?;
     }
 
-    final result = toggleItem(data, item.id, checked, mode, actualAmount: actualAmount);
+    final result = toggleItem(data, item.id, checked, mode, actualAmount: actualAmount, accountId: accountId);
     await onChanged();
     if (result == null || !context.mounted) return;
 

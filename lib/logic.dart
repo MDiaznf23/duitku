@@ -26,6 +26,7 @@ String isoDate(DateTime d) => _isoFmt.format(d);
 
 DateTime parseIso(String s) => DateTime.parse(s);
 
+/// Python: date.weekday() -> Senin=0 ... Minggu=6
 /// Dart:   DateTime.weekday -> Senin=1 ... Minggu=7
 int pythonWeekday(DateTime d) => (d.weekday - 1) % 7;
 
@@ -154,6 +155,7 @@ HistoryEntry transferBetweenAccounts(
   return e;
 }
 
+/// Pindahkan uang dari satu kantong ke tabungan.
 HistoryEntry transferToSavings(
   AppData data, {
   required double amount,
@@ -232,6 +234,7 @@ class DeleteResult {
   const DeleteResult(this.ok, [this.reason]);
 }
 
+/// Hapus satu entri riwayat berdasarkan id, 
 DeleteResult deleteEntry(AppData data, String entryId, [String? mode]) {
   final m = mode ?? data.mode;
   final hist = historyOf(data, m);
@@ -499,6 +502,9 @@ double _estimasiSisaPeriode(
   return total;
 }
 
+/// ─────────────────────────────────────────────────────────────
+/// REKAP KEBUTUHAN SAMPAI GAJIAN BERIKUTNYA
+/// ─────────────────────────────────────────────────────────────
 class RekapKebutuhan {
   final double prioritas;
   final double nonPrioritas;
@@ -576,14 +582,13 @@ List<AllocItem> visibleOperationalsToday(AppData data) {
   return activeOps;
 }
 
-/// Hasil cek saldo operasional 
+/// Hasil cek saldo operasional (dipakai untuk munculkan dialog di UI)
 class SaldoCheckResult {
   final String type; // 'none' | 'limited' | 'talangan' | 'critical'
   final String? message;
   SaldoCheckResult(this.type, this.message);
 }
 
-/// Port dari _check_saldo_operasional 
 SaldoCheckResult checkSaldoOperasional(AppData data) {
   final d = data.employed;
   final today = todayStr();
@@ -656,7 +661,8 @@ class ToggleResult {
 }
 
 /// Toggle checklist (centang / batal centang satu pos hari ini).
-ToggleResult? toggleItem(AppData data, String itemId, bool checked, String mode, {double? actualAmount}) {
+ToggleResult? toggleItem(AppData data, String itemId, bool checked, String mode,
+    {double? actualAmount, String? accountId}) {
   final today = todayStr();
   data.dailyLog.putIfAbsent(today, () => {});
 
@@ -680,7 +686,7 @@ ToggleResult? toggleItem(AppData data, String itemId, bool checked, String mode,
     final amt = it.variableAmount ? (actualAmount ?? it.amount) : it.amount;
 
     addExpense(data,
-        amount: amt, note: it.label, itemId: it.id, date: today, mode: mode);
+        amount: amt, note: it.label, itemId: it.id, date: today, mode: mode, accountId: accountId);
     if (it.freq == 'biweekly' && it.biweeklyAnchor == null) {
       it.biweeklyAnchor = today;
     }
@@ -718,8 +724,6 @@ ToggleResult? toggleItem(AppData data, String itemId, bool checked, String mode,
 }
 
 /// Cari baris riwayat milik satu pos pada tanggal tertentu.
-/// Prioritas ke itemId; kalau tidak ada (data lama hasil migrasi yang gagal
-/// disambungkan), baru jatuh ke pencocokan label.
 HistoryEntry? _findEntryForItem(
     List<HistoryEntry> hist, AllocItem it, String date) {
   for (int i = hist.length - 1; i >= 0; i--) {

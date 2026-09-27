@@ -230,7 +230,6 @@ class PengaturanTab extends StatelessWidget {
                 ];
 
                 // Susun jadi grid 2 kolom yang lebar tiap tombolnya sama,
-                // supaya simetris dan tidak menyisakan ruang kosong.
                 final rows = <Widget>[];
                 for (var i = 0; i < resetButtons.length; i += 2) {
                   final hasSecond = i + 1 < resetButtons.length;
@@ -273,7 +272,7 @@ class PengaturanTab extends StatelessWidget {
         context,
         child: Column(
           children: [
-            _cfgRow(context, 'Gaji (Rp)', d.salary.toStringAsFixed(0), (v) => d.salary = v),
+            _cfgRow(context, 'Gaji (Rp)', d.salary.toStringAsFixed(0), (v) => d.salary = v, isRupiah: true),
             const SizedBox(height: 8),
             _cfgRow(context, 'Periode (hari)', d.salaryPeriodDays.toString(), (v) => d.salaryPeriodDays = v.toInt()),
             const SizedBox(height: 8),
@@ -373,13 +372,19 @@ class PengaturanTab extends StatelessWidget {
     ];
   }
 
-  Widget _cfgRow(BuildContext context, String label, String value, void Function(double) onSave) {
+  Widget _cfgRow(BuildContext context, String label, String value, void Function(double) onSave,
+      {bool isRupiah = false}) {
     final ctrl = TextEditingController(text: value);
     return Row(
       children: [
         SizedBox(width: 110, child: Text(label, style: TextStyle(fontSize: 12, color: context.colors.textMuted))),
         Expanded(
-          child: TextField(controller: ctrl, keyboardType: TextInputType.number, style: const TextStyle(fontSize: 12)),
+          child: TextField(
+            controller: ctrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: isRupiah ? [RibuanInputFormatter()] : null,
+            style: const TextStyle(fontSize: 12),
+          ),
         ),
         const SizedBox(width: 8),
         SizedBox(
